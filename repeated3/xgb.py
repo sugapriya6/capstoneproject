@@ -1,5 +1,7 @@
 import pandas as pd
 import numpy as np
+import warnings
+warnings.filterwarnings("ignore")
 
 from sklearn.model_selection import RepeatedStratifiedKFold
 from sklearn.metrics import (
@@ -13,10 +15,11 @@ from xgboost import XGBClassifier
 # =========================
 # 1. LOAD DARWIN DATA
 # =========================
-darwin_path = "C:/capstone/alzheimers/proposed/preprocess1/data_train_processed.csv"
-realtime_path = "C:/capstone/alzheimers/proposed/preprocess1/data_test_processed.csv"
+darwin_path   = r"D:\capstone final project\capstoneproject\preprocess1\data_train_processed.csv"
+realtime_path = r"D:\capstone final project\capstoneproject\preprocess1\data_test_processed.csv"
 
-darwin = pd.read_csv(darwin_path)
+darwin   = pd.read_csv(darwin_path)
+realtime = pd.read_csv(realtime_path)
 
 X = darwin.drop(columns=["class"])
 y = darwin["class"].map({"P": 1, "H": 0})
@@ -40,7 +43,7 @@ model = XGBClassifier(
 # =========================
 rskf = RepeatedStratifiedKFold(
     n_splits=10,
-    n_repeats=10,
+    n_repeats=25,       # ⚠️ CHANGED: 10 → 25 to match paper
     random_state=42
 )
 
@@ -61,19 +64,19 @@ for train_idx, test_idx in rskf.split(X, y):
 
     acc.append(accuracy_score(y_test, y_pred))
     prec.append(precision_score(y_test, y_pred))
-    rec.append(recall_score(y_test, y_pred))              # Sensitivity
-    spec.append(tn / (tn + fp))                            # Specificity
+    rec.append(recall_score(y_test, y_pred))
+    spec.append(tn / (tn + fp))
     f1s.append(f1_score(y_test, y_pred))
     aucs.append(roc_auc_score(y_test, y_prob))
-    tpr.append(tp / (tp + fn))                             # TPR
-    fpr.append(fp / (fp + tn))                             # FPR
+    tpr.append(tp / (tp + fn))
+    fpr.append(fp / (fp + tn))
     kappa.append(cohen_kappa_score(y_test, y_pred))
     mcc.append(matthews_corrcoef(y_test, y_pred))
 
 # =========================
 # 4. PRINT CV RESULTS
 # =========================
-print("\n===== Repeated 10-Fold CV (DARWIN – XGBoost) =====")
+print("\n===== Repeated 10-Fold CV (DARWIN - XGBoost) =====")
 print(f"ACC:   {np.mean(acc):.3f} ± {np.std(acc):.3f}")
 print(f"PREC:  {np.mean(prec):.3f} ± {np.std(prec):.3f}")
 print(f"REC:   {np.mean(rec):.3f} ± {np.std(rec):.3f}")
@@ -91,26 +94,59 @@ print(f"MCC:   {np.mean(mcc):.3f} ± {np.std(mcc):.3f}")
 model.fit(X, y)
 
 # =========================
-# 6. REAL-TIME PREDICTION
+# 6. LOAD REAL-TIME DATA
 # =========================
-realtime = pd.read_csv(realtime_path)
+X_test = realtime[X.columns]
 
-common_features = X.columns.intersection(realtime.columns)
-X_real = realtime[common_features]
+print(f"\nCommon features used: {X_test.shape[1]}")
+print(f"Test samples:         {X_test.shape[0]}")
 
-print(f"\nCommon features used: {len(common_features)}")
-print(f"Test samples: {len(X_real)}")
+# =========================
+# 7. REAL-TIME PREDICTION WITH RISK CATEGORY
+# =========================
+y_test_prob = model.predict_proba(X_test)[:, 1]
 
-probs = model.predict_proba(X_real)[:, 1]
-preds = np.where(probs >= 0.5, "P", "H")
+def risk_category(prob):
+    if prob < 0.30:
+        return "H", "Low Risk"
+    elif prob < 0.60:
+        return "H", "Moderate Risk"
+    elif prob < 0.80:
+        return "P", "High Risk"
+    else:
+        return "P", "Critical Risk"
 
-results = pd.DataFrame({
-    "Predicted_Class": preds,
-    "Prediction_Probability": probs
-})
+risk_results = pd.Series(y_test_prob).apply(
+    lambda p: pd.Series(
+        risk_category(p),
+        index=["Predicted_Class", "Risk_Category"]
+    )
+)
 
-print("\n===== REAL-TIME PREDICTIONS =====")
-print(results.head())
+# Same format as randomforest.csv
+# 66 feature columns + 3 new columns at end
+realtime["Prediction_Probability"] = np.round(y_test_prob, 2)
+realtime["Predicted_Class"]        = risk_results["Predicted_Class"].values
+realtime["Risk_Category"]          = risk_results["Risk_Category"].values
 
-results.to_csv("xgb_realtime_predictions.csv", index=False)
-print("Predictions saved to xgb_realtime_predictions.csv")
+# Show only 5 rows in console
+print("\n===== REAL-TIME PREDICTIONS (Sample 5 Rows) =====")
+print(realtime[["Predicted_Class",
+                "Risk_Category",
+                "Prediction_Probability"]].head(5))
+
+# Summary
+print("\n===== PREDICTION SUMMARY =====")
+print(realtime["Predicted_Class"].value_counts())
+print("\n--- Risk Category Breakdown ---")
+print(realtime["Risk_Category"].value_counts())
+
+# =========================
+# 8. SAVE ALL ROWS TO CSV
+# =========================
+realtime.to_csv(
+    r"D:\capstone final project\capstoneproject\repeated3\All Outputs\xgboost.csv",
+    index=False
+)
+
+print("\nAll 41 predictions saved to xgboost.csv")

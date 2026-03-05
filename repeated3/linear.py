@@ -12,17 +12,17 @@ from sklearn.metrics import (
 # =====================================================
 # 1. LOAD DATA
 # =====================================================
-train_path = "C:/capstone/alzheimers/proposed/preprocess1/data_train_processed.csv"
-test_path  = "C:/capstone/alzheimers/proposed/preprocess1/data_test_processed.csv"
+train_path = r"D:\capstone final project\capstoneproject\preprocess1\data_train_processed.csv"
+test_path  = r"D:\capstone final project\capstoneproject\preprocess1\data_test_processed.csv"
 
-data = pd.read_csv(train_path)
+data      = pd.read_csv(train_path)
 test_data = pd.read_csv(test_path)
 
 X = data.drop(columns=["class"])
 y = data["class"].map({"P": 1, "H": 0})
 
 # =====================================================
-# 2. CLASSIFIER (CHANGE HERE FOR RF / KNN / GNB / ET / DT)
+# 2. CLASSIFIER
 # =====================================================
 model = LinearDiscriminantAnalysis()
 
@@ -47,25 +47,23 @@ for train_idx, test_idx in rskf.split(X, y):
     y_pred = model.predict(X_test)
     y_prob = model.predict_proba(X_test)[:, 1]
 
-    # Confusion matrix
     tn, fp, fn, tp = confusion_matrix(y_test, y_pred).ravel()
 
-    # Metrics
     acc.append(accuracy_score(y_test, y_pred))
     prec.append(precision_score(y_test, y_pred))
-    rec.append(recall_score(y_test, y_pred))          # Sensitivity
-    spec.append(tn / (tn + fp))                        # Specificity
+    rec.append(recall_score(y_test, y_pred))
+    spec.append(tn / (tn + fp))
     f1s.append(f1_score(y_test, y_pred))
     aucs.append(roc_auc_score(y_test, y_prob))
-    tpr.append(tp / (tp + fn))                         # TPR
-    fpr.append(fp / (fp + tn))                         # FPR
+    tpr.append(tp / (tp + fn))
+    fpr.append(fp / (fp + tn))
     kappa.append(cohen_kappa_score(y_test, y_pred))
     mcc.append(matthews_corrcoef(y_test, y_pred))
 
 # =====================================================
-# 4. PRINT CV RESULTS (BASE‑LEVEL METRICS)
+# 4. PRINT CV RESULTS
 # =====================================================
-print("\n===== Repeated 10-Fold CV (DARWIN – LDA) =====")
+print("\n===== Repeated 10-Fold CV (DARWIN - LDA) =====")
 print(f"ACC:   {np.mean(acc):.3f} ± {np.std(acc):.3f}")
 print(f"PREC:  {np.mean(prec):.3f} ± {np.std(prec):.3f}")
 print(f"REC:   {np.mean(rec):.3f} ± {np.std(rec):.3f}")
@@ -83,20 +81,59 @@ print(f"MCC:   {np.mean(mcc):.3f} ± {np.std(mcc):.3f}")
 model.fit(X, y)
 
 # =====================================================
-# 6. REAL-TIME PREDICTION
+# 6. LOAD REAL-TIME DATA
 # =====================================================
 test_data = test_data[X.columns]   # align features
 
-probs = model.predict_proba(test_data)[:, 1]
-preds = np.where(probs >= 0.5, "P", "H")
+print("\nCommon features used:", test_data.shape[1])
+print("Test samples:",          test_data.shape[0])
 
-results = pd.DataFrame({
-    "Predicted_Class": preds,
-    "Prediction_Probability": probs
-})
+# =====================================================
+# 7. REAL-TIME PREDICTION WITH RISK CATEGORY
+# =====================================================
+y_test_prob = model.predict_proba(test_data)[:, 1]
 
-print("\n===== REAL-TIME PREDICTIONS =====")
-print(results.head())
+def risk_category(prob):
+    if prob < 0.30:
+        return "H", "Low Risk"
+    elif prob < 0.60:
+        return "H", "Moderate Risk"
+    elif prob < 0.80:
+        return "P", "High Risk"
+    else:
+        return "P", "Critical Risk"
 
-results.to_csv("lda_realtime_predictions.csv", index=False)
-print("Predictions saved to lda_realtime_predictions.csv")
+results = pd.DataFrame()
+results["Prediction_Probability"] = y_test_prob
+
+risk_results = results["Prediction_Probability"].apply(
+    lambda p: pd.Series(
+        risk_category(p),
+        index=["Predicted_Class", "Risk_Category"]
+    )
+)
+
+results["Predicted_Class"] = risk_results["Predicted_Class"]
+results["Risk_Category"]   = risk_results["Risk_Category"]
+
+# Show only 5 rows in console
+print("\n===== REAL-TIME PREDICTIONS (Sample 5 Rows) =====")
+print(results[["Predicted_Class",
+               "Risk_Category",
+               "Prediction_Probability"]].head(5))
+
+# Summary
+print("\n===== PREDICTION SUMMARY =====")
+print(results["Predicted_Class"].value_counts())
+print("\n--- Risk Category Breakdown ---")
+print(results["Risk_Category"].value_counts())
+
+# =====================================================
+# 8. SAVE ALL ROWS TO CSV
+# =====================================================
+results.to_csv(
+    r"D:\capstone final project\capstoneproject\repeated3\All Outputs\lda.csv",
+    index=False
+)
+
+print("\nAll 41 predictions saved to lda.csv")

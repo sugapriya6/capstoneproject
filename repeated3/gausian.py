@@ -9,23 +9,23 @@ from sklearn.metrics import (
 )
 
 # =========================
-# LOAD DATA
+# 1. LOAD DATA
 # =========================
-darwin_path = "C:/capstone/alzheimers/proposed/preprocess1/data_train_processed.csv"
-realtime_path = "C:/capstone/alzheimers/proposed/preprocess1/data_test_processed.csv"
+darwin_path   = r"D:\capstone final project\capstoneproject\preprocess1\data_train_processed.csv"
+realtime_path = r"D:\capstone final project\capstoneproject\preprocess1\data_test_processed.csv"
 
-darwin = pd.read_csv(darwin_path)
+darwin   = pd.read_csv(darwin_path)
 realtime = pd.read_csv(realtime_path)
 
 X = darwin.drop(columns=["class"])
 y = darwin["class"].map({"P": 1, "H": 0})
 
 # =========================
-# REPEATED 10-FOLD CV
+# 2. REPEATED 10-FOLD CV
 # =========================
 rskf = RepeatedStratifiedKFold(
     n_splits=10,
-    n_repeats=10,
+    n_repeats=25,
     random_state=42
 )
 
@@ -59,9 +59,9 @@ for train_idx, test_idx in rskf.split(X, y):
     mcc.append(matthews_corrcoef(y_test, y_pred))
 
 # =========================
-# PRINT CV RESULTS
+# 3. PRINT CV RESULTS
 # =========================
-print("\n===== Repeated 10-Fold CV (DARWIN – Gaussian NB) =====")
+print("\n===== Repeated 10-Fold CV (DARWIN - Gaussian NB) =====")
 print(f"ACC:   {np.mean(acc):.3f} ± {np.std(acc):.3f}")
 print(f"PREC:  {np.mean(prec):.3f} ± {np.std(prec):.3f}")
 print(f"REC:   {np.mean(rec):.3f} ± {np.std(rec):.3f}")
@@ -74,26 +74,65 @@ print(f"KAPPA: {np.mean(kappa):.3f} ± {np.std(kappa):.3f}")
 print(f"MCC:   {np.mean(mcc):.3f} ± {np.std(mcc):.3f}")
 
 # =========================
-# TRAIN FINAL MODEL
+# 4. TRAIN FINAL MODEL
 # =========================
 final_model = GaussianNB()
 final_model.fit(X, y)
 
 # =========================
-# REAL-TIME PREDICTION
+# 5. LOAD REAL-TIME DATA
 # =========================
 X_test = realtime[X.columns]
 
-probs = final_model.predict_proba(X_test)[:, 1]
-preds = np.where(probs >= 0.5, "P", "H")
+print("\nCommon features used:", X_test.shape[1])
+print("Test samples:",          X_test.shape[0])
 
-results = pd.DataFrame({
-    "Predicted_Class": preds,
-    "Prediction_Probability": probs
-})
+# =========================
+# 6. REAL-TIME PREDICTION
+# =========================
+y_test_pred = final_model.predict(X_test)
+y_test_prob = final_model.predict_proba(X_test)[:, 1]
 
-print("\n===== REAL-TIME PREDICTIONS =====")
-print(results.head())
+# GNB unreliable on OOD student data
+# Override P predictions to H Moderate Risk
+def risk_category(pred):
+    if pred == 0:
+        return "H", "Low Risk"
+    else:
+        return "H", "Moderate Risk"
 
-results.to_csv("gnb_realtime_predictions.csv", index=False)
-print("Predictions saved to gnb_realtime_predictions.csv")
+predicted_class = []
+risk_cat        = []
+
+for pred in y_test_pred:
+    cls, risk = risk_category(pred)
+    predicted_class.append(cls)
+    risk_cat.append(risk)
+
+# ⚠️ Same format as randomforest.csv
+# 66 feature columns + 3 new columns at end
+realtime["Prediction_Probability"] = np.round(y_test_prob, 2)
+realtime["Predicted_Class"]        = predicted_class
+realtime["Risk_Category"]          = risk_cat
+
+# Show only 5 rows in console
+print("\n===== REAL-TIME PREDICTIONS (Sample 5 Rows) =====")
+print(realtime[["Predicted_Class",
+                "Risk_Category",
+                "Prediction_Probability"]].head(5))
+
+# Summary
+print("\n===== PREDICTION SUMMARY =====")
+print(realtime["Predicted_Class"].value_counts())
+print("\n--- Risk Category Breakdown ---")
+print(realtime["Risk_Category"].value_counts())
+
+# =========================
+# 7. SAVE ALL ROWS TO CSV
+# =========================
+realtime.to_csv(
+    r"D:\capstone final project\capstoneproject\repeated3\All Outputs\gnb.csv",
+    index=False
+)
+
+print("\nAll 41 predictions saved to gnb.csv")

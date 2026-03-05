@@ -12,7 +12,7 @@ from sklearn.metrics import (
 # =====================================================
 # 1. LOAD DARWIN DATA
 # =====================================================
-darwin_csv = "C:/capstone/alzheimers/proposed/preprocess1/data_train_processed.csv"
+darwin_csv = r"D:\capstone final project\capstoneproject\preprocess1\data_train_processed.csv"
 darwin = pd.read_csv(darwin_csv)
 
 X = darwin.drop(columns=["class"])
@@ -57,16 +57,16 @@ for train_idx, test_idx in rskf.split(X, y):
     f1s.append(f1_score(y_test, y_pred))
     aucs.append(roc_auc_score(y_test, y_prob))
 
-    tpr.append(tp / (tp + fn))          # same as recall
+    tpr.append(tp / (tp + fn))
     fpr.append(fp / (fp + tn))
 
     kappas.append(cohen_kappa_score(y_test, y_pred))
     mccs.append(matthews_corrcoef(y_test, y_pred))
 
 # =====================================================
-# 4. PRINT CV RESULTS (BASE-LEVEL READY)
+# 4. PRINT CV RESULTS
 # =====================================================
-print("\n===== Repeated 10-Fold CV (DARWIN – Logistic Regression) =====")
+print("\n===== Repeated 10-Fold CV (DARWIN - Logistic Regression) =====")
 print(f"ACC:   {np.mean(acc):.3f} ± {np.std(acc):.3f}")
 print(f"PREC:  {np.mean(prec):.3f} ± {np.std(prec):.3f}")
 print(f"REC:   {np.mean(rec):.3f} ± {np.std(rec):.3f}")
@@ -84,26 +84,61 @@ print(f"MCC:   {np.mean(mccs):.3f} ± {np.std(mccs):.3f}")
 lr.fit(X, y)
 
 # =====================================================
-# 6. REAL-TIME PREDICTION
+# 6. LOAD REAL-TIME DATA
 # =====================================================
-realtime_csv = "C:/capstone/alzheimers/proposed/preprocess1/data_test_processed.csv"
+realtime_csv = r"D:\capstone final project\capstoneproject\preprocess1\data_test_processed.csv"
 test_data = pd.read_csv(realtime_csv)
 
 X_test = test_data[X.columns]
 
 print("\nCommon features used:", X_test.shape[1])
-print("Test samples:", X_test.shape[0])
+print("Test samples:",          X_test.shape[0])
 
-probs = lr.predict_proba(X_test)[:, 1]
-preds = np.where(probs >= 0.5, "P", "H")
+# =====================================================
+# 7. REAL-TIME PREDICTION WITH RISK CATEGORY
+# =====================================================
+y_test_prob = lr.predict_proba(X_test)[:, 1]
 
-results = pd.DataFrame({
-    "Predicted_Class": preds,
-    "Prediction_Probability": probs
-})
+def risk_category(prob):
+    if prob < 0.30:
+        return "H", "Low Risk"
+    elif prob < 0.60:
+        return "H", "Moderate Risk"
+    elif prob < 0.80:
+        return "P", "High Risk"
+    else:
+        return "P", "Critical Risk"
 
-print("\n===== REAL-TIME PREDICTIONS =====")
-print(results.head())
+test_data["Prediction_Probability"] = y_test_prob
 
-results.to_csv("logistic_realtime_predictions.csv", index=False)
-print("Predictions saved to logistic_realtime_predictions.csv")
+risk_results = test_data["Prediction_Probability"].apply(
+    lambda p: pd.Series(
+        risk_category(p),
+        index=["Predicted_Class", "Risk_Category"]
+    )
+)
+
+test_data["Predicted_Class"] = risk_results["Predicted_Class"]
+test_data["Risk_Category"]   = risk_results["Risk_Category"]
+
+# Show only 5 rows in console
+print("\n===== REAL-TIME PREDICTIONS (Sample 5 Rows) =====")
+print(test_data[["Predicted_Class",
+                  "Risk_Category",
+                  "Prediction_Probability"]].head(5))
+
+# Summary
+print("\n===== PREDICTION SUMMARY =====")
+print(test_data["Predicted_Class"].value_counts())
+print("\n--- Risk Category Breakdown ---")
+print(test_data["Risk_Category"].value_counts())
+
+# =====================================================
+# 8. SAVE ALL ROWS TO CSV
+# =====================================================
+test_data.to_csv(
+    r"D:\capstone final project\capstoneproject\repeated3\All Outputs\logisticregression.csv",
+    index=False
+)
+
+print("\nAll 41 predictions saved to logisticregression.csv")

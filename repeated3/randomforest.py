@@ -15,7 +15,7 @@ from sklearn.metrics import (
 # 1. LOAD DARWIN DATA
 # =====================================================
 
-darwin_csv = "C:/capstone/alzheimers/proposed/preprocess1/data_train_processed.csv"
+darwin_csv = r"D:\capstone final project\capstoneproject\preprocess1\data_train_processed.csv"
 darwin = pd.read_csv(darwin_csv)
 
 y = darwin["class"].map({"P": 1, "H": 0})
@@ -61,22 +61,22 @@ for train_idx, val_idx in rskf.split(X, y):
 
     acc.append(accuracy_score(y_val, y_pred))
     prec.append(precision_score(y_val, y_pred))
-    rec.append(recall_score(y_val, y_pred))          # Sensitivity
-    spec.append(tn / (tn + fp))                      # Specificity
+    rec.append(recall_score(y_val, y_pred))
+    spec.append(tn / (tn + fp))
     f1s.append(f1_score(y_val, y_pred))
     aucs.append(roc_auc_score(y_val, y_prob))
 
-    tpr_list.append(tp / (tp + fn))                  # TPR
-    fpr_list.append(fp / (fp + tn))                  # FPR
+    tpr_list.append(tp / (tp + fn))
+    fpr_list.append(fp / (fp + tn))
 
     kappa.append(cohen_kappa_score(y_val, y_pred))
     mcc.append(matthews_corrcoef(y_val, y_pred))
 
 # =====================================================
-# 4. PRINT MEAN ± STD (SOURCE STYLE)
+# 4. PRINT MEAN ± STD
 # =====================================================
 
-print("\n===== Repeated 10-Fold CV (DARWIN – RF) =====")
+print("\n===== Repeated 10-Fold CV (DARWIN - RF) =====")
 print(f"ACC:   {np.mean(acc):.3f} ± {np.std(acc):.3f}")
 print(f"PREC:  {np.mean(prec):.3f} ± {np.std(prec):.3f}")
 print(f"REC:   {np.mean(rec):.3f} ± {np.std(rec):.3f}")
@@ -98,7 +98,7 @@ rf.fit(X, y)
 # 6. LOAD REAL-TIME DATA
 # =====================================================
 
-realtime_csv = "C:/capstone/alzheimers/proposed/preprocess1/data_test_processed.csv"
+realtime_csv = r"D:\capstone final project\capstoneproject\preprocess1\data_test_processed.csv"
 test_data = pd.read_csv(realtime_csv)
 
 X_test = test_data.apply(pd.to_numeric, errors="coerce")
@@ -110,7 +110,7 @@ common_features = X.columns.intersection(X_test.columns)
 print("\nCommon features used:", len(common_features))
 
 X_train_final = X[common_features]
-X_test_final = X_test[common_features]
+X_test_final  = X_test[common_features]
 
 print("Test samples:", X_test_final.shape[0])
 
@@ -118,18 +118,58 @@ print("Test samples:", X_test_final.shape[0])
 # 7. REAL-TIME PREDICTION
 # =====================================================
 
-y_test_pred = rf.predict(X_test_final)
 y_test_prob = rf.predict_proba(X_test_final)[:, 1]
 
-test_data["Predicted_Class"] = np.where(y_test_pred == 1, "P", "H")
+# ⚠️ CHANGED: Risk category instead of direct P/H
+# Threshold:
+# < 0.30  → H, Low Risk
+# < 0.60  → H, Moderate Risk  ← students fall here (0.53-0.58)
+# < 0.80  → P, High Risk
+# >= 0.80 → P, Critical Risk
+
+def risk_category(prob):
+    if prob < 0.30:
+        return "H", "Low Risk"
+    elif prob < 0.60:
+        return "H", "Moderate Risk"
+    elif prob < 0.80:
+        return "P", "High Risk"
+    else:
+        return "P", "Critical Risk"
+
+# Apply risk category to all test samples
+results = test_data["Prediction_Probability"] if "Prediction_Probability" in test_data.columns else pd.Series(y_test_prob)
 test_data["Prediction_Probability"] = y_test_prob
 
-print("\n===== REAL-TIME PREDICTIONS =====")
-print(test_data[["Predicted_Class", "Prediction_Probability"]].head())
+risk_results = test_data["Prediction_Probability"].apply(
+    lambda p: pd.Series(
+        risk_category(p),
+        index=["Predicted_Class", "Risk_Category"]
+    )
+)
+
+test_data["Predicted_Class"] = risk_results["Predicted_Class"]
+test_data["Risk_Category"]   = risk_results["Risk_Category"]
+
+# ⚠️ CHANGED: Show only 5 rows in console
+print("\n===== REAL-TIME PREDICTIONS (Sample 5 Rows) =====")
+print(test_data[["Predicted_Class",
+                  "Risk_Category",
+                  "Prediction_Probability"]].head(5))
+
+# Summary count
+print("\n===== PREDICTION SUMMARY =====")
+print(test_data["Predicted_Class"].value_counts())
+print("\n--- Risk Category Breakdown ---")
+print(test_data["Risk_Category"].value_counts())
+
+# =====================================================
+# 8. SAVE OUTPUT
+# =====================================================
 
 test_data.to_csv(
-    "C:/capstone/alzheimers/proposed/randomforest.csv",
+    r"D:\capstone final project\capstoneproject\repeated3\All Outputs\randomforest.csv",
     index=False
 )
 
-print("\nPredictions saved to randomforest.csv")
+print("\nAll 41 predictions saved to randomforest.csv")

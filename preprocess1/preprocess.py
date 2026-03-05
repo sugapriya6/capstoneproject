@@ -4,12 +4,13 @@ import pickle
 from sklearn.preprocessing import StandardScaler
 
 # --------------------------
-# CONFIG
+# CONFIG — FIXED PATHS
 # --------------------------
-MODE_FILE = "mode_values.pkl"
-OUTLIER_FILE = "outlier_stats.pkl"
-SCALER_FILE = "scaler.pkl"
-CORR_FILE = "high_corr.pkl"
+BASE = r"D:\capstone final project\capstoneproject\preprocess1"
+MODE_FILE    = BASE + r"\mode_values.pkl"
+OUTLIER_FILE = BASE + r"\outlier_stats.pkl"
+SCALER_FILE  = BASE + r"\scaler.pkl"
+CORR_FILE    = BASE + r"\high_corr.pkl"
 CORR_THRESHOLD = 0.9
 
 # --------------------------
@@ -57,7 +58,6 @@ def handle_outliers(df, phase):
         for col, (lower, upper) in stats.items():
             if col in df.columns:
                 df[col] = np.clip(df[col], lower, upper)
-
     return df
 
 # --------------------------
@@ -100,7 +100,6 @@ def remove_correlated(df, phase, has_class):
         upper = corr.where(np.triu(np.ones(corr.shape), k=1).astype(bool))
         to_drop = [col for col in upper.columns if any(upper[col] > CORR_THRESHOLD)]
         X = X.drop(columns=to_drop)
-
         with open(CORR_FILE, "wb") as f:
             pickle.dump(to_drop, f)
     else:
@@ -118,10 +117,7 @@ def remove_correlated(df, phase, has_class):
 # --------------------------
 def preprocess_data(input_file, output_file, phase):
     df = pd.read_csv(input_file)
-
-    # Remove user_id
-    df = df.iloc[:, 1:]
-
+    df = df.iloc[:, 1:]          # remove id column
     has_class = "class" in df.columns
 
     df = handle_nulls(df, phase)
@@ -138,10 +134,17 @@ def preprocess_data(input_file, output_file, phase):
 # --------------------------
 # RUN
 # --------------------------
-preprocess_data("content/data.csv",
-                "data_train_processed.csv",
-                phase="train")
+BASE_DATA = r"D:\capstone final project\capstoneproject\preprocess1"
 
-preprocess_data("content/data_test.csv",
-                "data_test_processed.csv",
-                phase="test")
+# CHANGE TO WHEREVER YOUR data.csv ACTUALLY IS:
+preprocess_data(
+    r"D:\capstone final project\capstoneproject\preprocess1\content\data.csv",
+    BASE_DATA + r"\data_train_processed.csv",
+    phase="train"
+)
+
+preprocess_data(
+    r"D:\capstone final project\capstoneproject\preprocess1\content\data_test.csv",
+    BASE_DATA + r"\data_test_processed.csv",
+    phase="test"
+)

@@ -12,10 +12,10 @@ from sklearn.metrics import (
 # =============================
 # 1. LOAD DATASETS
 # =============================
-darwin_path = "C:/capstone/alzheimers/proposed/preprocess1/data_train_processed.csv"
-realtime_path = "C:/capstone/alzheimers/proposed/preprocess1/data_test_processed.csv"
+darwin_path   = r"D:\capstone final project\capstoneproject\preprocess1\data_train_processed.csv"
+realtime_path = r"D:\capstone final project\capstoneproject\preprocess1\data_test_processed.csv"
 
-darwin = pd.read_csv(darwin_path)
+darwin   = pd.read_csv(darwin_path)
 realtime = pd.read_csv(realtime_path)
 
 X = darwin.drop(columns=["class"])
@@ -34,7 +34,7 @@ knn = KNeighborsClassifier(
 # =============================
 rskf = RepeatedStratifiedKFold(
     n_splits=10,
-    n_repeats=10,
+    n_repeats=25,      # ⚠️ CHANGED: 10 → 25 to match paper
     random_state=42
 )
 
@@ -50,7 +50,6 @@ for train_idx, test_idx in rskf.split(X, y):
     y_pred = knn.predict(X_test)
     y_prob = knn.predict_proba(X_test)[:, 1]
 
-    # Confusion matrix
     tn, fp, fn, tp = confusion_matrix(y_test, y_pred).ravel()
 
     acc.append(accuracy_score(y_test, y_pred))
@@ -67,7 +66,7 @@ for train_idx, test_idx in rskf.split(X, y):
 # =============================
 # 4. PRINT CV RESULTS
 # =============================
-print("\n===== Repeated 10-Fold CV (DARWIN – KNN) =====")
+print("\n===== Repeated 10-Fold CV (DARWIN - KNN) =====")
 print(f"ACC:   {np.mean(acc):.3f} ± {np.std(acc):.3f}")
 print(f"PREC:  {np.mean(prec):.3f} ± {np.std(prec):.3f}")
 print(f"REC:   {np.mean(rec):.3f} ± {np.std(rec):.3f}")
@@ -85,20 +84,58 @@ print(f"MCC:   {np.mean(mccs):.3f} ± {np.std(mccs):.3f}")
 knn.fit(X, y)
 
 # =============================
-# 6. REAL-TIME PREDICTION
+# 6. LOAD REAL-TIME DATA
 # =============================
-realtime = realtime[X.columns]
+X_test = realtime[X.columns]
 
-probs = knn.predict_proba(realtime)[:, 1]
-preds = np.where(probs >= 0.5, "P", "H")
+print(f"\nCommon features used: {X_test.shape[1]}")
+print(f"Test samples:         {X_test.shape[0]}")
 
-results = pd.DataFrame({
-    "Predicted_Class": preds,
-    "Prediction_Probability": probs
-})
+# =============================
+# 7. REAL-TIME PREDICTION WITH RISK CATEGORY
+# =============================
+y_test_prob = knn.predict_proba(X_test)[:, 1]
 
-print("\n===== REAL-TIME PREDICTIONS =====")
-print(results.head())
+def risk_category(prob):
+    if prob < 0.30:
+        return "H", "Low Risk"
+    elif prob < 0.60:
+        return "H", "Moderate Risk"
+    elif prob < 0.80:
+        return "P", "High Risk"
+    else:
+        return "P", "Critical Risk"
 
-results.to_csv("knn_realtime_predictions.csv", index=False)
-print("Predictions saved to knn_realtime_predictions.csv")
+risk_results = pd.Series(y_test_prob).apply(
+    lambda p: pd.Series(
+        risk_category(p),
+        index=["Predicted_Class", "Risk_Category"]
+    )
+)
+
+# Same format as randomforest.csv
+realtime["Prediction_Probability"] = np.round(y_test_prob, 2)
+realtime["Predicted_Class"]        = risk_results["Predicted_Class"].values
+realtime["Risk_Category"]          = risk_results["Risk_Category"].values
+
+# Show only 5 rows in console
+print("\n===== REAL-TIME PREDICTIONS (Sample 5 Rows) =====")
+print(realtime[["Predicted_Class",
+                "Risk_Category",
+                "Prediction_Probability"]].head(5))
+
+# Summary
+print("\n===== PREDICTION SUMMARY =====")
+print(realtime["Predicted_Class"].value_counts())
+print("\n--- Risk Category Breakdown ---")
+print(realtime["Risk_Category"].value_counts())
+
+# =============================
+# 8. SAVE ALL ROWS TO CSV
+# =============================
+realtime.to_csv(
+    r"D:\capstone final project\capstoneproject\repeated3\All Outputs\knn.csv",
+    index=False
+)
+
+print("\nAll 41 predictions saved to knn.csv")
