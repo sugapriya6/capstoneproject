@@ -1,0 +1,10 @@
+Model,Acc,Sn,Sp,Pre,AUC
+De Gregorio et al [35],91.0,83,100,-,-
+Cilia et al [17],94.28,88.24,100,-,-
+Parziale et al [38],97.12,94.23,100,-,-
+Subha et al [41],90.0,92,-,88,90
+Gattulli et al [37],88.0,90,86,-,-
+Onder et al [39],85.0,-,-,-,-
+Hakan et al [40],97.14,-,90,95,-
+Erdogmus et al [36],90.4,-,-,-,-
+Proposed Model (Ours),74.29,72.22,76.47,76.47,78.76

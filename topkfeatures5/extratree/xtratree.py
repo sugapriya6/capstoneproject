@@ -1,169 +1,177 @@
+import warnings
+warnings.filterwarnings("ignore")
+
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-from sklearn.model_selection import train_test_split
+import joblib
+import os
+
 from sklearn.ensemble import ExtraTreesClassifier
 from sklearn.feature_selection import RFE
+from sklearn.model_selection import train_test_split
 from sklearn.metrics import (
-    accuracy_score, precision_score, recall_score, roc_auc_score,
-    confusion_matrix, f1_score, matthews_corrcoef, cohen_kappa_score
+    accuracy_score, precision_score, recall_score,
+    roc_auc_score, confusion_matrix, f1_score,
+    matthews_corrcoef, cohen_kappa_score
 )
 
-# Load the dataset (replace 'your_dataset.csv' with your actual file name)
-file_path = "C:/capstone/alzheimers/proposed/preprocess1/data_train_processed.csv"
-df = pd.read_csv(file_path)
+# ==============================
+# 1. PATHS
+# ==============================
+TRAIN_PATH = r"D:\capstone final project\capstoneproject\preprocess1\data_train_processed.csv"
+MODEL_DIR  = r"D:\capstone final project\capstoneproject\topkfeatures\extratree"
+os.makedirs(MODEL_DIR, exist_ok=True)
 
-# Assuming the last column is the class label
-X = df.iloc[:, :-1]  # Features
-y = df.iloc[:, -1]   # Labels
+# ==============================
+# 2. LOAD DATA
+# ==============================
+df = pd.read_csv(TRAIN_PATH)
+X  = df.drop(columns=["class"])
+y  = df["class"].map({"H": 0, "P": 1})
 
-# Convert class labels ('H' and 'P') to numerical values if necessary
-# Example: If 'H' is 0 and 'P' is 1
-y = y.map({'H': 0, 'P': 1})
+print(f"Dataset: {X.shape[0]} samples, {X.shape[1]} features")
 
-# Split the data into training and testing sets
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+# ==============================
+# 3. SPLIT FIRST — THEN RFE
+# ==============================
+X_train, X_test, y_train, y_test = train_test_split(
+    X, y, test_size=0.2, random_state=42, stratify=y
+)
+print(f"Train: {len(X_train)} | Test: {len(X_test)}")
 
-# Create an Extra Trees classifier
-et_classifier = ExtraTreesClassifier(random_state=42)
-
-# Perform grid search for k values
+# ==============================
+# 4. RFE ACROSS K VALUES
+# ==============================
 min_k = 10
-max_k = 338  # Adjusted to the number of features in your dataset
-step = 10
+max_k = X.shape[1]   # 66
+step  = 10
 
-# Initialize lists to store metric values and corresponding indices
-k_values = []
-accuracy_values = []
+k_values           = []
+accuracy_values    = []
 sensitivity_values = []
 specificity_values = []
-precision_values = []
-tpr_values = []
-fpr_values = []
-f1_values = []
-mcc_values = []
+precision_values   = []
+tpr_values         = []
+fpr_values         = []
+f1_values          = []
+mcc_values         = []
 cohen_kappa_values = []
-auc_roc_values = []
+auc_roc_values     = []
+
+print(f"\nRunning RFE for k = {min_k} to {max_k}, step {step}...")
 
 for k in range(min_k, max_k + 1, step):
-    # Apply Recursive Feature Elimination (RFE)
-    rfe = RFE(estimator=et_classifier, n_features_to_select=k)
+
+    # Fresh model each iteration
+    et = ExtraTreesClassifier(n_estimators=200, random_state=42)
+
+    # RFE fit on TRAIN only
+    rfe = RFE(estimator=et, n_features_to_select=k)
     X_train_rfe = rfe.fit_transform(X_train, y_train)
 
-    # Train the Extra Trees classifier using the selected features
-    et_classifier.fit(X_train_rfe, y_train)
+    # Train on TRAIN
+    et.fit(X_train_rfe, y_train)
 
-    # Apply the same feature selection to the test set
+    # Evaluate on unseen TEST
     X_test_rfe = rfe.transform(X_test)
+    y_pred = et.predict(X_test_rfe)
+    y_prob = et.predict_proba(X_test_rfe)[:, 1]
 
-    # Make predictions on the test set
-    y_pred = et_classifier.predict(X_test_rfe)
-    y_prob = et_classifier.predict_proba(X_test_rfe)[:, 1]
+    tn, fp, fn, tp = confusion_matrix(y_test, y_pred).ravel()
 
-    # Calculate and append metric values for each value of k
     k_values.append(k)
     accuracy_values.append(accuracy_score(y_test, y_pred))
     sensitivity_values.append(recall_score(y_test, y_pred))
-
-    # Calculate specificity using confusion matrix
-    tn, fp, fn, tp = confusion_matrix(y_test, y_pred).ravel()
     specificity_values.append(tn / (tn + fp))
-
-    precision_values.append(precision_score(y_test, y_pred))
-    tpr_values.append(recall_score(y_test, y_pred))
-    fpr_values.append(fp / (tn + fp))
+    precision_values.append(precision_score(y_test, y_pred, zero_division=0))
+    tpr_values.append(tp / (tp + fn))
+    fpr_values.append(fp / (fp + tn))
     f1_values.append(f1_score(y_test, y_pred))
     mcc_values.append(matthews_corrcoef(y_test, y_pred))
     cohen_kappa_values.append(cohen_kappa_score(y_test, y_pred))
     auc_roc_values.append(roc_auc_score(y_test, y_prob))
 
-# Find the indices for best values
-best_accuracy_index = np.argmax(accuracy_values)
-best_sensitivity_index = np.argmax(sensitivity_values)
-best_specificity_index = np.argmax(specificity_values)
-best_precision_index = np.argmax(precision_values)
-best_tpr_index = np.argmax(tpr_values)
-best_fpr_index = np.argmin(fpr_values)
-best_f1_index = np.argmax(f1_values)
-best_mcc_index = np.argmax(mcc_values)
-best_cohen_kappa_index = np.argmax(cohen_kappa_values)
-best_auc_roc_index = np.argmax(auc_roc_values)
+    print(f"  k={k:3d} | ACC={accuracy_values[-1]:.3f} | MCC={mcc_values[-1]:.3f} | AUC={auc_roc_values[-1]:.3f}")
 
-# Plot the metrics across different values of k
-plt.figure(figsize=(12, 8))
+# ==============================
+# 5. FIND BEST K
+# ==============================
+best_acc_idx   = np.argmax(accuracy_values)
+best_sens_idx  = np.argmax(sensitivity_values)
+best_spec_idx  = np.argmax(specificity_values)
+best_prec_idx  = np.argmax(precision_values)
+best_f1_idx    = np.argmax(f1_values)
+best_mcc_idx   = np.argmax(mcc_values)
+best_kappa_idx = np.argmax(cohen_kappa_values)
+best_auc_idx   = np.argmax(auc_roc_values)
+best_fpr_idx   = np.argmin(fpr_values)
 
-plt.plot(k_values, accuracy_values, label='Accuracy')
-plt.plot(k_values, sensitivity_values, label='Sensitivity (TPR)')
-plt.plot(k_values, specificity_values, label='Specificity')
-plt.plot(k_values, precision_values, label='Precision')
-plt.plot(k_values, tpr_values, label='True Positive Rate (TPR)')
-plt.plot(k_values, fpr_values, label='False Positive Rate (FPR)')
-plt.plot(k_values, f1_values, label='F1 Score')
-plt.plot(k_values, mcc_values, label='MCC (Matthews Correlation Coefficient)')
-plt.plot(k_values, cohen_kappa_values, label="Cohen's Kappa")
-plt.plot(k_values, auc_roc_values, label='AUC-ROC')
+print("\n===== BEST K VALUES =====")
+print(f"Best Accuracy    k={k_values[best_acc_idx]:3d} → {accuracy_values[best_acc_idx]:.4f}")
+print(f"Best Sensitivity k={k_values[best_sens_idx]:3d} → {sensitivity_values[best_sens_idx]:.4f}")
+print(f"Best Specificity k={k_values[best_spec_idx]:3d} → {specificity_values[best_spec_idx]:.4f}")
+print(f"Best Precision   k={k_values[best_prec_idx]:3d} → {precision_values[best_prec_idx]:.4f}")
+print(f"Best F1          k={k_values[best_f1_idx]:3d} → {f1_values[best_f1_idx]:.4f}")
+print(f"Best MCC         k={k_values[best_mcc_idx]:3d} → {mcc_values[best_mcc_idx]:.4f}")
+print(f"Best AUC         k={k_values[best_auc_idx]:3d} → {auc_roc_values[best_auc_idx]:.4f}")
 
-# Mark the points on the plot
-plt.scatter(k_values[best_accuracy_index], accuracy_values[best_accuracy_index], marker='o', color='orange', label='Best Accuracy')
-plt.scatter(k_values[best_sensitivity_index], sensitivity_values[best_sensitivity_index], marker='o', color='blue', label='Best Sensitivity')
-plt.scatter(k_values[best_specificity_index], specificity_values[best_specificity_index], marker='o', color='green', label='Best Specificity')
-plt.scatter(k_values[best_precision_index], precision_values[best_precision_index], marker='o', color='red', label='Best Precision')
-plt.scatter(k_values[best_tpr_index], tpr_values[best_tpr_index], marker='o', color='purple', label='Best TPR')
-plt.scatter(k_values[best_fpr_index], fpr_values[best_fpr_index], marker='o', color='yellow', label='Best FPR')
-plt.scatter(k_values[best_f1_index], f1_values[best_f1_index], marker='o', color='brown', label='Best F1 Score')
-plt.scatter(k_values[best_mcc_index], mcc_values[best_mcc_index], marker='o', color='pink', label='Best MCC')
-plt.scatter(k_values[best_cohen_kappa_index], cohen_kappa_values[best_cohen_kappa_index], marker='o', color='cyan', label="Best Cohen's Kappa")
-plt.scatter(k_values[best_auc_roc_index], auc_roc_values[best_auc_roc_index], marker='o', color='gray', label='Best AUC-ROC')
+# ==============================
+# 6. PLOT METRICS VS K
+# ==============================
+plt.figure(figsize=(14, 8))
+plt.plot(k_values, accuracy_values,    label="Accuracy",    linewidth=2)
+plt.plot(k_values, sensitivity_values, label="Sensitivity", linewidth=2)
+plt.plot(k_values, specificity_values, label="Specificity", linewidth=2)
+plt.plot(k_values, precision_values,   label="Precision",   linewidth=2)
+plt.plot(k_values, f1_values,          label="F1 Score",    linewidth=2)
+plt.plot(k_values, mcc_values,         label="MCC",         linewidth=2)
+plt.plot(k_values, auc_roc_values,     label="AUC-ROC",     linewidth=2)
+plt.plot(k_values, fpr_values,         label="FPR",         linewidth=2, linestyle="--")
 
-plt.title('Performance Metrics across Different Values of k')
-plt.xlabel('Number of Features (k)')
-plt.ylabel('Metric Value')
-plt.legend()
+plt.scatter(k_values[best_acc_idx], accuracy_values[best_acc_idx],
+            marker="o", s=100, color="orange", zorder=5,
+            label=f"Best ACC k={k_values[best_acc_idx]}")
+plt.scatter(k_values[best_mcc_idx], mcc_values[best_mcc_idx],
+            marker="o", s=100, color="pink", zorder=5,
+            label=f"Best MCC k={k_values[best_mcc_idx]}")
+plt.scatter(k_values[best_auc_idx], auc_roc_values[best_auc_idx],
+            marker="o", s=100, color="gray", zorder=5,
+            label=f"Best AUC k={k_values[best_auc_idx]}")
+
+plt.title("Extra Trees — Performance Metrics vs Top-K Features (RFE)")
+plt.xlabel("Number of Features (k)")
+plt.ylabel("Metric Value")
+plt.legend(loc="lower right", fontsize=8)
 plt.grid(True)
-plt.savefig("C:/capstone/alzheimers/proposed/topkfeatures5/extratree/extratree_metrics.png", dpi=300, bbox_inches="tight")
+plt.tight_layout()
 
+plot_path = os.path.join(MODEL_DIR, "et_topk_metrics.png")
+plt.savefig(plot_path, dpi=300, bbox_inches="tight")
 plt.show()
+print(f"\nPlot saved: {plot_path}")
 
-
-# Print the best k values for each metric
-print(f"Best Accuracy (k={k_values[best_accuracy_index]}): {accuracy_values[best_accuracy_index]}")
-print(f"Best Sensitivity (TPR) (k={k_values[best_sensitivity_index]}): {sensitivity_values[best_sensitivity_index]}")
-print(f"Best Specificity (k={k_values[best_specificity_index]}): {specificity_values[best_specificity_index]}")
-print(f"Best Precision (k={k_values[best_precision_index]}): {precision_values[best_precision_index]}")
-print(f"Best TPR (k={k_values[best_tpr_index]}): {tpr_values[best_tpr_index]}")
-print(f"Best FPR (k={k_values[best_fpr_index]}): {fpr_values[best_fpr_index]}")
-print(f"Best F1 Score (k={k_values[best_f1_index]}): {f1_values[best_f1_index]}")
-print(f"Best MCC (k={k_values[best_mcc_index]}): {mcc_values[best_mcc_index]}")
-print(f"Best Cohen's Kappa (k={k_values[best_cohen_kappa_index]}): {cohen_kappa_values[best_cohen_kappa_index]}")
-print(f"Best AUC-ROC (k={k_values[best_auc_roc_index]}): {auc_roc_values[best_auc_roc_index]}")
 # ==============================
-# SAVE FINAL MODEL FOR REAL‑TIME USE
+# 7. SAVE FINAL MODEL
+#    Best k by MCC
+#    Retrained on FULL DARWIN
 # ==============================
+best_k = k_values[best_mcc_idx]
+print(f"\nSaving final ET model with best k = {best_k}")
 
-import joblib
+final_et  = ExtraTreesClassifier(n_estimators=200, random_state=42)
+final_rfe = RFE(estimator=final_et, n_features_to_select=best_k)
 
-# Select best k based on MCC (already computed)
-best_k = k_values[best_mcc_index]
+X_final = final_rfe.fit_transform(X, y)
+final_et.fit(X_final, y)
 
-print("Saving model with best k =", best_k)
+joblib.dump(final_et,                      os.path.join(MODEL_DIR, "et_model.joblib"))
+joblib.dump(final_rfe,                     os.path.join(MODEL_DIR, "et_rfe.joblib"))
+joblib.dump(X.columns[final_rfe.support_], os.path.join(MODEL_DIR, "et_features.joblib"))
 
-# Retrain RFE with best k
-final_rfe = RFE(
-    estimator=ExtraTreesClassifier(random_state=42),
-    n_features_to_select=best_k
-)
-
-X_train_final = final_rfe.fit_transform(X_train, y_train)
-
-# Train final Extra Trees model
-final_model = ExtraTreesClassifier(random_state=42)
-final_model.fit(X_train_final, y_train)
-
-# Save paths
-MODEL_DIR = "C:/capstone/alzheimers/proposed/topkfeatures5/extratree/"
-
-joblib.dump(final_model, MODEL_DIR + "et_model.joblib")
-joblib.dump(final_rfe, MODEL_DIR + "et_rfe.joblib")
-joblib.dump(X.columns[final_rfe.support_], MODEL_DIR + "et_features.joblib")
-
-print("✅ Model saved successfully for real‑time inference")
+print(f"et_model.joblib    saved")
+print(f"et_rfe.joblib      saved")
+print(f"et_features.joblib saved")
+print(f"\nTop {best_k} features selected from {X.shape[1]} total")
+print("Selected features:")
+print(list(X.columns[final_rfe.support_]))
