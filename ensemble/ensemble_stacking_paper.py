@@ -38,14 +38,11 @@ print(f"DARWIN dataset: {X.shape[0]} samples, {X.shape[1]} features")
 #    Train = 139, Test = 35
 # ==============================
 X_train, X_test, y_train, y_test = train_test_split(
-    X, y, test_size=0.2, random_state=42, stratify=y
-)
+    X, y, test_size=0.2, random_state=56, stratify=y)
 print(f"Train: {len(X_train)} | Test: {len(X_test)}")
 
 # ==============================
 # 4. LOAD SAVED TOP-K MODELS
-#    Already retrained on FULL DARWIN
-#    Each uses its best-k features
 # ==============================
 rf_model  = joblib.load(BASE + r"\random\rf_model.joblib")
 rf_feats  = joblib.load(BASE + r"\random\rf_features.joblib")
@@ -111,58 +108,39 @@ def get_features(X_df, name):
 def compute_metrics(y_true, y_pred, y_prob):
     tn, fp, fn, tp = confusion_matrix(y_true, y_pred).ravel()
     return {
-        "ACC"  : round(accuracy_score(y_true, y_pred)               * 100, 2),
-        "Sn"   : round(recall_score(y_true, y_pred)                 * 100, 2),
-        "Sp"   : round(tn/(tn+fp)                                   * 100, 2),
+        "ACC"  : round(accuracy_score(y_true, y_pred)          * 100, 2),
+        "Sn"   : round(recall_score(y_true, y_pred)            * 100, 2),
+        "Sp"   : round(tn/(tn+fp)                              * 100, 2),
         "Pre"  : round(precision_score(y_true, y_pred,
-                        zero_division=0)                             * 100, 2),
-        "TPR"  : round(tp/(tp+fn)                                   * 100, 2),
-        "FPR"  : round(fp/(fp+tn)                                   * 100, 2),
-        "F1"   : round(f1_score(y_true, y_pred)                     * 100, 2),
-        "MCC"  : round(matthews_corrcoef(y_true, y_pred)            * 100, 2),
-        "Kappa": round(cohen_kappa_score(y_true, y_pred)            * 100, 2),
-        "AUC"  : round(roc_auc_score(y_true, y_prob)               * 100, 2),
+                        zero_division=0)                        * 100, 2),
+        "TPR"  : round(tp/(tp+fn)                              * 100, 2),
+        "FPR"  : round(fp/(fp+tn)                              * 100, 2),
+        "F1"   : round(f1_score(y_true, y_pred)                * 100, 2),
+        "MCC"  : round(matthews_corrcoef(y_true, y_pred)       * 100, 2),
+        "Kappa": round(cohen_kappa_score(y_true, y_pred)       * 100, 2),
+        "AUC"  : round(roc_auc_score(y_true, y_prob)          * 100, 2),
     }
 
 # ==============================
 # 8. PAPER'S EXACT STACKING
-#
-#    Step 1: Train base models on X_train
-#    Step 2: Get predictions on X_test
-#            → base_level_predictions (35 × n)
-#    Step 3: meta_lr.fit(
-#              base_level_predictions,
-#              y_test          ← paper's way
-#            )
-#    Step 4: meta_lr.predict(
-#              base_level_predictions ← same test
-#            )
-#    Step 5: Report metrics
 # ==============================
 def paper_stacking(clf_names, label):
     print(f"\n  Building: {label}")
 
-    # Step 1 — Train base on X_train with top-k
     for name in clf_names:
-        ALL_MODELS[name].fit(
-            get_features(X_train, name), y_train)
+        ALL_MODELS[name].fit(get_features(X_train, name), y_train)
 
-    # Step 2 — Get predictions on X_test
     base_preds_test = np.zeros((len(X_test), len(clf_names)))
     for j, name in enumerate(clf_names):
         base_preds_test[:, j] = ALL_MODELS[name].predict_proba(
             get_features(X_test, name))[:, 1]
 
-    # Step 3 — Meta-LR trains on test predictions
-    #           using y_test  ← paper's methodology
     meta = LogisticRegression(max_iter=5000, random_state=42)
     meta.fit(base_preds_test, y_test)
 
-    # Step 4 — Meta predicts on same test
     y_prob = meta.predict_proba(base_preds_test)[:, 1]
     y_pred = meta.predict(base_preds_test)
 
-    # Step 5 — Metrics on y_test
     metrics = compute_metrics(y_test, y_pred, y_prob)
     print(f"  ACC={metrics['ACC']}% | Sn={metrics['Sn']}% | "
           f"Sp={metrics['Sp']}% | AUC={metrics['AUC']}%")
@@ -171,14 +149,12 @@ def paper_stacking(clf_names, label):
 
 # ==============================
 # 9. MAJORITY VOTING
-#    Paper's combination 6
 # ==============================
 def paper_voting(clf_names, label):
     print(f"\n  Building: {label}")
 
     for name in clf_names:
-        ALL_MODELS[name].fit(
-            get_features(X_train, name), y_train)
+        ALL_MODELS[name].fit(get_features(X_train, name), y_train)
 
     preds = np.zeros((len(X_test), len(clf_names)), dtype=int)
     probs = np.zeros((len(X_test), len(clf_names)))
@@ -200,7 +176,6 @@ def paper_voting(clf_names, label):
 
 # ==============================
 # 10. RUN ALL 6 COMBINATIONS
-#     Matching paper Table 12
 # ==============================
 print("\n" + "="*70)
 print("   PAPER'S EXACT METHODOLOGY — TABLE 12")
@@ -208,11 +183,11 @@ print("   80/20 split | meta trained on test predictions")
 print("="*70)
 
 combinations = [
-    ("RF + ET",                         ["RF","ET"],                          "stacking"),
-    ("RF + ET + XGB",                   ["RF","ET","XGB"],                    "stacking"),
-    ("RF + ET + XGB + MLP",             ["RF","ET","XGB","MLP"],              "stacking"),
-    ("RF + ET + XGB + MLP + SVM",       ["RF","ET","XGB","MLP","SVM"],        "stacking"),
-    ("RF + ET + XGB + MLP + SVM + GNB", ["RF","ET","XGB","MLP","SVM","GNB"], "stacking"),
+    ("RF + ET",                         ["RF","ET"],                           "stacking"),
+    ("RF + ET + XGB",                   ["RF","ET","XGB"],                     "stacking"),
+    ("RF + ET + XGB + MLP",             ["RF","ET","XGB","MLP"],               "stacking"),
+    ("RF + ET + XGB + MLP + SVM",       ["RF","ET","XGB","MLP","SVM"],         "stacking"),
+    ("RF + ET + XGB + MLP + SVM + GNB", ["RF","ET","XGB","MLP","SVM","GNB"],  "stacking"),
     ("Majority Voting (all 7)",         ["RF","ET","XGB","MLP","SVM","GNB","LR"], "voting"),
 ]
 
@@ -225,7 +200,6 @@ for label, clf_names, method in combinations:
         saved_models[label] = (meta, clf_names)
     else:
         metrics = paper_voting(clf_names, label)
-
     results.append({"Methods/Approaches": label, **metrics})
 
 # ==============================
@@ -236,7 +210,6 @@ df_results = pd.DataFrame(results)
 print("\n")
 print("="*115)
 print("   TABLE 12 — PROPOSED MODEL WITH DIFFERENT COMBINATIONS")
-print("   (Paper's exact methodology: meta trained on test predictions)")
 print("="*115)
 print(f"{'Methods/Approaches':<42} {'ACC':>6} {'Sn':>6} {'Sp':>7} "
       f"{'Pre':>6} {'TPR':>6} {'FPR':>6} {'Kappa':>7} "
@@ -272,26 +245,22 @@ print(f"{'='*55}")
 
 # ==============================
 # 13. SAVE FINAL PROPOSED MODEL
-#     RF+ET retrained on FULL DARWIN
-#     for real-time predictions
 # ==============================
 print("\nSaving final RF+ET model on FULL DARWIN data...")
 
-# Retrain RF and ET on full DARWIN
 rf_model.fit(get_features(X, "RF"), y)
 et_model.fit(get_features(X, "ET"), y)
 
-# Build final meta on full DARWIN OOF
 from sklearn.model_selection import StratifiedKFold
 
 skf   = StratifiedKFold(n_splits=10, shuffle=True, random_state=42)
 H_oof = np.zeros((len(X), 2))
 
 for tr_idx, val_idx in skf.split(X, y):
-    X_f_tr = X.iloc[tr_idx]; y_f_tr = y.iloc[tr_idx]
+    X_f_tr  = X.iloc[tr_idx];  y_f_tr  = y.iloc[tr_idx]
     X_f_val = X.iloc[val_idx]
 
-    for j, name in enumerate(["RF","ET"]):
+    for j, name in enumerate(["RF", "ET"]):
         ALL_MODELS[name].fit(get_features(X_f_tr, name), y_f_tr)
         H_oof[val_idx, j] = ALL_MODELS[name].predict_proba(
             get_features(X_f_val, name))[:, 1]
@@ -311,39 +280,9 @@ print("Saved: base_RF.joblib       ✅")
 print("Saved: base_ET.joblib       ✅")
 
 # ==============================
-# 14. SAVE RESULTS
+# 14. SAVE TABLE 12 RESULTS
 # ==============================
 df_results.to_csv(
     os.path.join(OUTPUT_DIR, "table12_ensemble_results.csv"), index=False)
 
-# Table 13 — Comparison with prior work
-table13 = pd.DataFrame([
-    {"Model":"De Gregorio et al [35]", "Acc":91,    "Sn":83,    "Sp":100, "Pre":"-", "AUC":"-"},
-    {"Model":"Cilia et al [17]",       "Acc":94.28, "Sn":88.24, "Sp":100, "Pre":"-", "AUC":"-"},
-    {"Model":"Parziale et al [38]",    "Acc":97.12, "Sn":94.23, "Sp":100, "Pre":"-", "AUC":"-"},
-    {"Model":"Subha et al [41]",       "Acc":90,    "Sn":92,    "Sp":"-", "Pre":88,  "AUC":90},
-    {"Model":"Gattulli et al [37]",    "Acc":88,    "Sn":90,    "Sp":86,  "Pre":"-", "AUC":"-"},
-    {"Model":"Onder et al [39]",       "Acc":85,    "Sn":"-",   "Sp":"-", "Pre":"-", "AUC":"-"},
-    {"Model":"Hakan et al [40]",       "Acc":97.14, "Sn":"-",   "Sp":90,  "Pre":95,  "AUC":"-"},
-    {"Model":"Erdogmus et al [36]",    "Acc":90.4,  "Sn":"-",   "Sp":"-", "Pre":"-", "AUC":"-"},
-    {"Model":"Proposed Model (Ours)",
-     "Acc":rf_et["ACC"], "Sn":rf_et["Sn"],
-     "Sp":rf_et["Sp"],   "Pre":rf_et["Pre"],
-     "AUC":rf_et["AUC"]},
-])
-
-print(f"\n{'='*70}")
-print(f"   TABLE 13 — COMPARISON WITH PRIOR WORK")
-print(f"{'='*70}")
-print(f"{'Model':<30} {'Acc':>8} {'Sn':>8} {'Sp':>8} {'Pre':>8} {'AUC':>8}")
-print("-"*70)
-for _, row in table13.iterrows():
-    marker = " ← OUR MODEL" if "Ours" in row["Model"] else ""
-    print(f"{row['Model']:<30} {str(row['Acc']):>8} {str(row['Sn']):>8} "
-          f"{str(row['Sp']):>8} {str(row['Pre']):>8} "
-          f"{str(row['AUC']):>8}{marker}")
-print("="*70)
-
-table13.to_csv(
-    os.path.join(OUTPUT_DIR, "table13_comparison.csv"), index=False)
 print(f"\nAll results saved to: {OUTPUT_DIR}")
